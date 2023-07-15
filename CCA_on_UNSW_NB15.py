@@ -6,7 +6,6 @@ import random as rd
 import preprocessing
 
 
-
 def logarithmic_transformation(data_test):
     # Do Logaritmic transformations on dataset that are suggested in the paper
     nonzero_mask = data_test != 0
