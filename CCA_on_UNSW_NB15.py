@@ -1,9 +1,12 @@
 import numpy as np  # Numerical computing library
 # Importing Package to run CCA Algorithm
-from biclustlib.algorithms import ChengChurchAlgorithm
-from biclustlib.io import _biclustering_to_dict
+# from biclustlib.algorithms import ChengChurchAlgorithm
+# from biclustlib.io import _biclustering_to_dict
 import random as rd
 import preprocessing
+
+from biclustlib.biclustlib.algorithms.cca import ChengChurchAlgorithm
+from biclustlib.biclustlib.io import _biclustering_to_dict
 
 
 def logarithmic_transformation(data_test):
@@ -63,7 +66,7 @@ def run_cca(sample_data):
     # creating an instance of the ChengChurchAlgorithm class and running with the parameters of the original study
     # cca = ChengChurchAlgorithm(num_biclusters=10, msr_threshold=300.0, multiple_node_deletion_threshold=1.2)
 
-    cca = ChengChurchAlgorithm(num_biclusters=250)
+    cca = ChengChurchAlgorithm(num_biclusters=100)
 
     print("Starting Algorithm")
     biclustering_test = cca.run(sample_data)
@@ -153,7 +156,7 @@ def main():
     y_cat_test = data[1][1]
     all_cat_test = data[1][2]
     test_data = logarithmic_transformation(test_data)
-    sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=500)
+    sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=2000)
     get_distribution_of_sample(sample_labels)
     biclustering_test = run_cca(sample_data)
     results = format_cca_results(biclustering_test, all_cat_test, sample_labels)
