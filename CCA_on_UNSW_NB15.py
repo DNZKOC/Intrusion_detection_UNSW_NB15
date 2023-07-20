@@ -4,7 +4,7 @@ import numpy as np  # Numerical computing library
 # from biclustlib.io import _biclustering_to_dict
 import random as rd
 import preprocessing
-
+import argparse
 from custom_biclustlib.biclustlib.algorithms.cca import ChengChurchAlgorithm
 from custom_biclustlib.biclustlib.io import _biclustering_to_dict
 
@@ -151,7 +151,7 @@ def calculate_binary_classification(results):
     return accuracy_binary
 
 
-def main():
+def main(sample_size=None):
     # mult_acc_av = 0
     # bin_acc_av = 0
     # for i in range(10):
@@ -160,7 +160,7 @@ def main():
     y_cat_test = data[1][1]
     all_cat_test = data[1][2]
     test_data = logarithmic_transformation(test_data)
-    sample_data, sample_labels = get_sample(test_data, y_cat_test)
+    sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=sample_size)
     get_distribution_of_sample(sample_labels)
     biclustering_test = run_cca(sample_data)
     results = format_cca_results(biclustering_test, all_cat_test, sample_labels)
@@ -182,5 +182,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # Verwendung von argparse, um den sample_size-Parameter beim Ausführen des Codes anzugeben
+    parser = argparse.ArgumentParser()
+    parser.add_argument("sample_size", type=int, nargs='?', default=None, help="Sample size for CCA")
+    args = parser.parse_args()
+
+    main(sample_size=args.sample_size)
 
