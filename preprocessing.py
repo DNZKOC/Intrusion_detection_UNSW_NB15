@@ -190,6 +190,9 @@ def preprocessing():
         # Loading the dataset from a CSV file into a pandas DataFrame
         df = pd.read_csv(path)
         df.drop_duplicates(inplace=True)
+        if "Unnamed: 0" in df.columns.values:
+            df.rename(columns={'Unnamed: 0': 'id'}, inplace=True)
+
         with open('CCA_1.out', 'w') as saveFile:
             saveFile.write("Successful Run")
             saveFile.write("\n")
