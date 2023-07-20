@@ -190,6 +190,11 @@ def preprocessing():
         # Loading the dataset from a CSV file into a pandas DataFrame
         df = pd.read_csv(path)
         df.drop_duplicates(inplace=True)
+        with open('CCA_1.out', 'w') as saveFile:
+            saveFile.write("Successful Run")
+            saveFile.write("\n")
+            saveFile.write(str(df))
+
         df = df.set_index("id")
 
         y = df['label']  # label vector 0=No Attack, 1=Attack
