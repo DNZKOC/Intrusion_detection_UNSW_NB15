@@ -193,6 +193,7 @@ def preprocessing():
         with open('CCA_1.out', 'w') as saveFile:
             saveFile.write("Successful Run")
             saveFile.write("\n")
+            saveFile.write(str(df.columns.values))
             saveFile.write(str(df))
 
         df = df.set_index("id")
