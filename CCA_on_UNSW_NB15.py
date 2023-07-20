@@ -5,8 +5,8 @@ import numpy as np  # Numerical computing library
 import random as rd
 import preprocessing
 
-from biclustlib.biclustlib.algorithms.cca import ChengChurchAlgorithm
-from biclustlib.biclustlib.io import _biclustering_to_dict
+from custom_biclustlib.biclustlib.algorithms.cca import ChengChurchAlgorithm
+from custom_biclustlib.biclustlib.io import _biclustering_to_dict
 
 
 def logarithmic_transformation(data_test):
@@ -21,6 +21,7 @@ def logarithmic_transformation(data_test):
 def get_sample(data_test, y_cat, sample_size=None):
 
     if not sample_size:
+        y_cat = y_cat.reset_index()
         return data_test, y_cat
     else:
         # Define sample of data to use CCA on smaller dataset.
@@ -29,9 +30,7 @@ def get_sample(data_test, y_cat, sample_size=None):
         sample_data = data_test[random_indices]
         sample_labels = y_cat.iloc[random_indices]
         sample_labels = sample_labels.reset_index()
-
         print(sample_labels)
-
         return sample_data, sample_labels
 
 
@@ -44,8 +43,6 @@ def get_distribution_of_sample(sample_labels):
         count = sample_labels["attack_cat"].value_counts().get(label, 0)
         labels[label] = count
 
-    print(labels)
-
 
 def run_cca(sample_data):
     # Run CCA on the sample data
@@ -57,9 +54,9 @@ def run_cca(sample_data):
     min_value = np.min(sample_data)
     max_value = np.max(sample_data)
 
-    msr_thr = (((max_value - min_value) ** 2) / 12) * 0.005
-
-    print(msr_thr)
+    # msr_thr = (((max_value - min_value) ** 2) / 12) * 0.005
+    msr_thr = 400
+    print("The used threshold for the msr is:", msr_thr)
 
     print("Initializing CCA")
 
@@ -123,6 +120,8 @@ def calc_multi_classification(results):
     print(max_keys)
     print("Accuracy Multiclassification:", accuracy)
 
+    return accuracy
+
 
 def calculate_binary_classification(results):
     binary_results = []
@@ -149,19 +148,37 @@ def calculate_binary_classification(results):
 
     print("Accuracy binary:", accuracy_binary)
 
+    return accuracy_binary
+
 
 def main():
+    # mult_acc_av = 0
+    # bin_acc_av = 0
+    # for i in range(10):
     data = preprocessing.preprocessing()
     test_data = data[1][0]
     y_cat_test = data[1][1]
     all_cat_test = data[1][2]
     test_data = logarithmic_transformation(test_data)
-    sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=2000)
+    sample_data, sample_labels = get_sample(test_data, y_cat_test)
     get_distribution_of_sample(sample_labels)
     biclustering_test = run_cca(sample_data)
     results = format_cca_results(biclustering_test, all_cat_test, sample_labels)
-    calc_multi_classification(results)
-    calculate_binary_classification(results)
+    mult_acc = calc_multi_classification(results)
+    bin_acc = calculate_binary_classification(results)
+
+    with open('CCA_1.out', 'w') as saveFile:
+        saveFile.write("Successful Run")
+        saveFile.write("\n")
+        saveFile.write(f"Multi result accuracy is: {mult_acc}")
+        saveFile.write("\n")
+        saveFile.write(f"Binary result accuracy is: {bin_acc}")
+
+    #     mult_acc_av += mult_acc
+    #     bin_acc_av += bin_acc
+    #
+    # print("Accuracy Multi Average:", mult_acc_av/10)
+    # print("Accuracy binary Average:", bin_acc_av/10)
 
 
 if __name__ == '__main__':

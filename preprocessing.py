@@ -11,10 +11,10 @@ def categorical_data_to_numerical_encoding(df_cat):
     encoded_data_cat = encoder.fit_transform(df_cat)
 
     # Printing the head (first few rows) of the df_cat DataFrame
-    print(df_cat.head())
+    # print(df_cat.head())
 
     # Printing the encoded representation of the first row of the categorical data
-    print(encoded_data_cat[0])
+    # print(encoded_data_cat[0])
 
     # Specifying the categorical columns to be encoded
     categorical_columns = ['proto', 'service', 'state']
@@ -54,10 +54,10 @@ def df_to_normalized_ndarray(df_num, df):
     data_array = np.array(normalized_numerical)
 
     # Printing the shape (dimensions) of the data array
-    print(data_array.shape)
+    # print(data_array.shape)
 
     # Accessing and printing the first row of the data array
-    print(data_array[0])
+    # print(data_array[0])
 
     return data_array
 
@@ -89,7 +89,7 @@ def preprocessing():
         all_cat = []
         for i in y_cat:
             if i not in all_cat:
-                print(i)
+                # print(i)
                 all_cat.append(i)
 
         data_array = df_to_normalized_ndarray(df_num, df)
@@ -100,10 +100,10 @@ def preprocessing():
         # Concatenate encoded categorical data with numerical data array
         concatenated_data = np.concatenate((encoded_data_cat, data_array), axis=1)
         # Print the shape of the concatenated data
-        print("Shape of concatenated data:", concatenated_data.shape)
+        # print("Shape of concatenated data:", concatenated_data.shape)
 
         # Print the first row of the concatenated data
-        print("First row of concatenated data:", concatenated_data[0])
+        # print("First row of concatenated data:", concatenated_data[0])
 
         result_data.append(concatenated_data)
         result_data.append(y_cat)
@@ -128,10 +128,10 @@ def categorical_data_to_numerical_encoding(df_cat):
     encoded_data_cat = encoder.fit_transform(df_cat)
 
     # Printing the head (first few rows) of the df_cat DataFrame
-    print(df_cat.head())
+    # print(df_cat.head())
 
     # Printing the encoded representation of the first row of the categorical data
-    print(encoded_data_cat[0])
+    # print(encoded_data_cat[0])
 
     # Specifying the categorical columns to be encoded
     categorical_columns = ['proto', 'service', 'state']
@@ -171,10 +171,10 @@ def df_to_normalized_ndarray(df_num, df):
     data_array = np.array(normalized_numerical)
 
     # Printing the shape (dimensions) of the data array
-    print(data_array.shape)
+    # print(data_array.shape)
 
     # Accessing and printing the first row of the data array
-    print(data_array[0])
+    # print(data_array[0])
 
     return data_array
 
@@ -206,7 +206,7 @@ def preprocessing():
         all_cat = []
         for i in y_cat:
             if i not in all_cat:
-                print(i)
+                # print(i)
                 all_cat.append(i)
 
         data_array = df_to_normalized_ndarray(df_num, df)
@@ -217,10 +217,10 @@ def preprocessing():
         # Concatenate encoded categorical data with numerical data array
         concatenated_data = np.concatenate((encoded_data_cat, data_array), axis=1)
         # Print the shape of the concatenated data
-        print("Shape of concatenated data:", concatenated_data.shape)
+        # print("Shape of concatenated data:", concatenated_data.shape)
 
         # Print the first row of the concatenated data
-        print("First row of concatenated data:", concatenated_data[0])
+        # print("First row of concatenated data:", concatenated_data[0])
 
         result_data.append(concatenated_data)
         result_data.append(y_cat)
