@@ -44,18 +44,22 @@ def get_distribution_of_sample(sample_labels):
         labels[label] = count
 
 
-def run_cca(sample_data):
+def run_cca(sample_data, msr_threshhold="default", data_min_cols=100,
+            multiple_node_deletion_threshhold=1.2, number_of_biclusters=100):
+
     # Run CCA on the sample data
 
     # missing value imputation suggested by Cheng and Church
     missing_sample = np.where(sample_data < 0.0)
     sample_data[missing_sample] = np.random.randint(low=0, high=800, size=len(missing_sample[0]))
 
-    min_value = np.min(sample_data)
-    max_value = np.max(sample_data)
+    if msr_threshhold == "default":
+        min_value = np.min(sample_data)
+        max_value = np.max(sample_data)
+        msr_thr = (((max_value - min_value) ** 2) / 12) * 0.005
+    else:
+        msr_thr = msr_threshhold
 
-    # msr_thr = (((max_value - min_value) ** 2) / 12) * 0.005
-    msr_thr = 400
     print("The used threshold for the msr is:", msr_thr)
 
     print("Initializing CCA")
@@ -63,13 +67,14 @@ def run_cca(sample_data):
     # creating an instance of the ChengChurchAlgorithm class and running with the parameters of the original study
     # cca = ChengChurchAlgorithm(num_biclusters=10, msr_threshold=300.0, multiple_node_deletion_threshold=1.2)
 
-    cca = ChengChurchAlgorithm(num_biclusters=100)
+    cca = ChengChurchAlgorithm(num_biclusters=100, msr_threshold=msr_thr, data_min_cols=data_min_cols,
+                               multiple_node_deletion_threshold=multiple_node_deletion_threshhold)
 
     print("Starting Algorithm")
     biclustering_test = cca.run(sample_data)
     print(biclustering_test)
 
-    return biclustering_test
+    return biclustering_test, msr_thr
 
 
 def format_cca_results(biclustering_test, all_cat, sample_labels):
@@ -152,33 +157,53 @@ def calculate_binary_classification(results):
 
 
 def main(sample_size=None):
-    # mult_acc_av = 0
-    # bin_acc_av = 0
-    # for i in range(10):
-    data = preprocessing.preprocessing()
-    test_data = data[1][0]
-    y_cat_test = data[1][1]
-    all_cat_test = data[1][2]
-    test_data = logarithmic_transformation(test_data)
-    sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=sample_size)
-    get_distribution_of_sample(sample_labels)
-    biclustering_test = run_cca(sample_data)
-    results = format_cca_results(biclustering_test, all_cat_test, sample_labels)
-    mult_acc = calc_multi_classification(results)
-    bin_acc = calculate_binary_classification(results)
+    mult_acc_av = 0
+    bin_acc_av = 0
+    number_of_runs = 10
+    msr_tresh = "default"
+    data_min_col = 500
+    multiple_node_deletion_tresh = 1.2
+    number_of_biclusters = 100
 
-    with open('CCA_1.out', 'w') as saveFile:
+    for i in range(number_of_runs):
+        data = preprocessing.preprocessing()
+        test_data = data[1][0]
+        y_cat_test = data[1][1]
+        all_cat_test = data[1][2]
+        test_data = logarithmic_transformation(test_data)
+        sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=sample_size)
+        print(len(sample_data))
+        get_distribution_of_sample(sample_labels)
+        biclustering_test, msr_thr = run_cca(sample_data, msr_threshhold=msr_tresh, data_min_cols=data_min_col,
+                                             multiple_node_deletion_threshhold=multiple_node_deletion_tresh,
+                                             number_of_biclusters=number_of_biclusters)
+
+        results = format_cca_results(biclustering_test, all_cat_test, sample_labels)
+        mult_acc = calc_multi_classification(results)
+        bin_acc = calculate_binary_classification(results)
+        mult_acc_av += mult_acc
+        bin_acc_av += bin_acc
+
+    mult_acc_av = mult_acc_av/10
+    bin_acc_av = bin_acc_av/10
+    print("Accuracy Multi Average:", mult_acc_av)
+    print("Accuracy binary Average:", bin_acc_av)
+
+    with open(f'CCA_{number_of_runs}_{sample_size}_{round(msr_thr)}_{multiple_node_deletion_tresh}_{data_min_col}_'
+              f'{number_of_biclusters}.out', 'w') as saveFile:
         saveFile.write("Successful Run")
         saveFile.write("\n")
-        saveFile.write(f"Multi result accuracy is: {mult_acc}")
+        saveFile.write("The Parameters used:")
         saveFile.write("\n")
-        saveFile.write(f"Binary result accuracy is: {bin_acc}")
-
-    #     mult_acc_av += mult_acc
-    #     bin_acc_av += bin_acc
-    #
-    # print("Accuracy Multi Average:", mult_acc_av/10)
-    # print("Accuracy binary Average:", bin_acc_av/10)
+        saveFile.write(f"Number of Runs: {number_of_runs}, Sample size: {sample_size}, MSR Treshhold: {msr_thr}, "
+                       f"Multiple Node Deletion Treshhold: {multiple_node_deletion_tresh},"
+                       f" Data_min_col: {data_min_col}, Number of Biclusters: {number_of_biclusters}")
+        saveFile.write("\n")
+        saveFile.write("Average Result over number of Runs:")
+        saveFile.write("\n")
+        saveFile.write(f"Multi result accuracy is: {mult_acc_av}")
+        saveFile.write("\n")
+        saveFile.write(f"Binary result accuracy is: {bin_acc_av}")
 
 
 if __name__ == '__main__':
@@ -186,6 +211,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("sample_size", type=int, nargs='?', default=None, help="Sample size for CCA")
     args = parser.parse_args()
-
     main(sample_size=args.sample_size)
 

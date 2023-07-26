@@ -193,7 +193,7 @@ def preprocessing():
         if "Unnamed: 0" in df.columns.values:
             df.rename(columns={'Unnamed: 0': 'id'}, inplace=True)
 
-        with open('CCA_1.out', 'w') as saveFile:
+        with open('CCA_preprocessing.out', 'w') as saveFile:
             saveFile.write("Successful Run")
             saveFile.write("\n")
             saveFile.write(str(df.columns.values))
