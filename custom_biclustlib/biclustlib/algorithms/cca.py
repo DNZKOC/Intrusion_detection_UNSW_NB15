@@ -20,6 +20,7 @@
 
 from ._base import BaseBiclusteringAlgorithm
 from ..models import Bicluster, Biclustering
+from ..io import _biclustering_to_dict
 from sklearn.utils.validation import check_array
 
 import numpy as np
@@ -77,7 +78,7 @@ class ChengChurchAlgorithm(BaseBiclusteringAlgorithm):
         msr_thr = (((max_value - min_value) ** 2) / 12) * 0.005 if self.msr_threshold == 'estimate' else self.msr_threshold
 
         biclusters = []
-
+        number_of_data_in_biclusters = 0
         for i in range(self.num_biclusters):
             rows = np.ones(num_rows, dtype=np.bool)
             cols = np.ones(num_cols, dtype=np.bool)
@@ -97,7 +98,30 @@ class ChengChurchAlgorithm(BaseBiclusteringAlgorithm):
                 bicluster_shape = (len(row_indices), len(col_indices))
                 data[row_indices[:, np.newaxis], col_indices] = np.random.uniform(low=min_value, high=max_value, size=bicluster_shape)
 
+            # Modified CCA to stop when reaching 100% Coverage of the data
+            # biclustering_count_helper = Biclustering([Bicluster(row_indices, col_indices)])
+            # bic_count_dict = _biclustering_to_dict(biclustering_count_helper)
+            #
+            # for bicluster in bic_count_dict["biclusters"]:
+            #     for row in bicluster[0]:
+            #         number_of_data_in_biclusters += 1
+
             biclusters.append(Bicluster(row_indices, col_indices))
+
+            #
+            # print(len(data), number_of_data_in_biclusters)
+            # if number_of_data_in_biclusters >= len(data):
+            #     break
+
+            # Printing Percentage of finished data.
+            # start = int(len(data)/10)
+            # end = int(len(data)/10)
+            #
+            # for j in range(10):
+            #     if number_of_data_in_biclusters in list(range(start * j - 150, end * j + 150)):
+            #         print(f"{j}0% erreicht.")
+            #         print(number_of_data_in_biclusters)
+            #         print(f"Number of Biclusters: {i}")
 
         return Biclustering(biclusters)
 

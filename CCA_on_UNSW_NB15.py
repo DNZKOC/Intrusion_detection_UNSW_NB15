@@ -1,16 +1,36 @@
-import numpy as np  # Numerical computing library
-# Importing Package to run CCA Algorithm
-# from biclustlib.algorithms import ChengChurchAlgorithm
-# from biclustlib.io import _biclustering_to_dict
+import numpy as np
 import random as rd
 import preprocessing
 import argparse
 from custom_biclustlib.biclustlib.algorithms.cca import ChengChurchAlgorithm
 from custom_biclustlib.biclustlib.io import _biclustering_to_dict
+from custom_biclustlib.biclustlib.io import _dict_to_biclustering
+import time
+import sklearn.metrics as metrics
+from custom_biclustlib.biclustlib.evaluation.prelic import prelic_relevance
+from custom_biclustlib.biclustlib.evaluation.prelic import prelic_recovery
+from custom_biclustlib.biclustlib.evaluation.subspace import clustering_error
+from custom_biclustlib.biclustlib.evaluation.subspace import relative_non_intersecting_area
+import pandas as pd
+
+
+def write_results_in_file(number_of_runs, sample_size, msr_thr, multiple_node_deletion_tresh, data_min_col,
+                          number_of_biclusters, biclustering):
+
+    # Save biclustering results to a file
+
+    biclustering_dict = _biclustering_to_dict(biclustering)
+    biclustering_list = biclustering_dict["biclusters"]
+    with open(
+            f'CCA_modified_{number_of_runs}_{sample_size}_{round(msr_thr)}_{multiple_node_deletion_tresh}_{data_min_col}_'
+            f'{number_of_biclusters}.out', 'w') as saveFile:
+        for bicluster in biclustering_list:
+            saveFile.write(str(bicluster))
+            saveFile.write("\n")
 
 
 def logarithmic_transformation(data_test):
-    # Do Logaritmic transformations on dataset that are suggested in the paper
+    # Perform Logarithmic transformations on the dataset as suggested in the paper
     nonzero_mask = data_test != 0
     data_test_log_norm = np.zeros_like(data_test)
     data_test_log_norm[nonzero_mask] = np.log10(data_test[nonzero_mask] * (10**5)) * 100
@@ -30,18 +50,36 @@ def get_sample(data_test, y_cat, sample_size=None):
         sample_data = data_test[random_indices]
         sample_labels = y_cat.iloc[random_indices]
         sample_labels = sample_labels.reset_index()
-        print(sample_labels)
+
         return sample_data, sample_labels
 
 
-def get_distribution_of_sample(sample_labels):
+def get_sample_binary_labels(sample_labels):
+    # Convert multi-class labels to binary labels (Attack/Normal)
 
+    sample_labels_binary = sample_labels.copy()
+    for index, row in sample_labels_binary.iterrows():
+        if row['attack_cat'] != "Normal":
+            sample_labels_binary.at[index, 'attack_cat'] = "Attack"
+
+    return sample_labels_binary
+
+
+def get_distribution_of_sample(sample_labels):
     labels = {"Normal": [], "Reconnaissance": [], "Backdoor": [], "DoS": [], "Exploits": [],
               "Analysis": [], "Fuzzers": [], "Worms": [], "Shellcode": [], "Generic": []}
 
+    labels_binary = {"Normal": 0, "Attack": 0}
     for label in labels:
         count = sample_labels["attack_cat"].value_counts().get(label, 0)
         labels[label] = count
+
+        if label == "Normal":
+            labels_binary["Normal"] = count
+        else:
+            labels_binary["Attack"] += count
+
+    return labels, labels_binary
 
 
 def run_cca(sample_data, msr_threshhold="default", data_min_cols=100,
@@ -49,10 +87,11 @@ def run_cca(sample_data, msr_threshhold="default", data_min_cols=100,
 
     # Run CCA on the sample data
 
-    # missing value imputation suggested by Cheng and Church
+    # Missing value imputation suggested by Cheng and Church
     missing_sample = np.where(sample_data < 0.0)
     sample_data[missing_sample] = np.random.randint(low=0, high=800, size=len(missing_sample[0]))
 
+    # Calculate MSR threshold with forumla by biclustlib library
     if msr_threshhold == "default":
         min_value = np.min(sample_data)
         max_value = np.max(sample_data)
@@ -60,32 +99,33 @@ def run_cca(sample_data, msr_threshhold="default", data_min_cols=100,
     else:
         msr_thr = msr_threshhold
 
-    print("The used threshold for the msr is:", msr_thr)
-
     print("Initializing CCA")
-
-    # creating an instance of the ChengChurchAlgorithm class and running with the parameters of the original study
-    # cca = ChengChurchAlgorithm(num_biclusters=10, msr_threshold=300.0, multiple_node_deletion_threshold=1.2)
-
-    cca = ChengChurchAlgorithm(num_biclusters=100, msr_threshold=msr_thr, data_min_cols=data_min_cols,
+    cca = ChengChurchAlgorithm(num_biclusters=number_of_biclusters, msr_threshold=msr_thr, data_min_cols=data_min_cols,
                                multiple_node_deletion_threshold=multiple_node_deletion_threshhold)
-
     print("Starting Algorithm")
     biclustering_test = cca.run(sample_data)
-    print(biclustering_test)
 
     return biclustering_test, msr_thr
 
 
-def format_cca_results(biclustering_test, all_cat, sample_labels):
+def format_results_for_f1(biclustering_test, all_cat, sample_labels):
+    # Formate Bicluster result, for easier calculatio of f1-score
+
     biclusters_as_dict = _biclustering_to_dict(biclustering_test)
     results = []
+    classified_rows = set()
+    number_of_bicl = 0
+
     for bicluster in biclusters_as_dict["biclusters"]:
+        number_of_bicl += 1
         bicluster_values = {}
         for cat in all_cat:
+            # Initialize dictionary to later count data of each attack in this bicluster.
             bicluster_values[cat] = 0
 
         for row in bicluster[0]:
+            # Count and accumulate occurrences of each attack category
+            classified_rows.add(row)
             bicluster_values[sample_labels.loc[row]["attack_cat"]] += 1
 
         results.append(bicluster_values)
@@ -93,123 +133,437 @@ def format_cca_results(biclustering_test, all_cat, sample_labels):
     for result in results:
         print(result)
 
-    return results
+    return results, len(classified_rows)
 
 
-def calc_multi_classification(results):
-    information = {}
-
-    precision_numerator = 0
-    precision_denominator = 0
-    max_keys = set()
+def calc_f1_multi_classification(results, true_labels):
+    purity_numerator = 0
+    amount_of_data_biclustering = 0
+    avg_precision, avg_recall, avg_f1, avg_acc = 0, 0, 0, 0
 
     for i, result in enumerate(results):
+        count_labels = 0
+        # Count occurence of each label in the bicluster
+        for label in result:
+            count_labels += result[label]
+
+        # Determine most featured label
         max_key = max(result, key=result.get)
-        max_keys.add(max_key)
+        # max_value is equal to the definition of true positives
         max_value = result[max_key]
         sum_values = sum(result.values())
-        percent = (max_value / sum_values) * 100
 
-        information[f"Bicluster {i + 1}"] = {
-            "Sum": sum_values,
-            "Max Key": max_key,
-            "Percentage": percent
-        }
+        amount_of_data_biclustering += sum_values
+        true_negatives = 0
+        acc_denumerator = 0
+        for label in true_labels:
+            # Iterate throug real labels of the data
+            if label == max_key:
+                # True positives and false negatives added to acc_denumerator.
+                acc_denumerator += true_labels[label]
+            else:
+                # True Negatives and false positives added to acc_denumerator and true negatives
+                acc_denumerator += true_labels[label]
+                true_negatives += true_labels[label]
 
-        precision_numerator += result[max_key]
-        precision_denominator += sum_values
+        # Subtract false positives from true negatives to get real value.
+        true_negatives = true_negatives - (count_labels - max_value)
 
-    accuracy = precision_numerator / precision_denominator
+        precision = (max_value / sum_values)
+        recall = max_value / true_labels[max_key]
+        accuracy = (max_value + true_negatives) / acc_denumerator
+        f1_score = (2 * recall * precision) / (recall + precision)
 
-    # print(information)
-    print(max_keys)
-    print("Accuracy Multiclassification:", accuracy)
+        purity_numerator += result[max_key]
+        avg_acc += accuracy
+        avg_f1 += f1_score
+        avg_recall += recall
+        avg_precision += precision
+        number_of_bicluster = i + 1
 
-    return accuracy
+    avg_precision = avg_precision / number_of_bicluster
+    avg_recall = avg_recall / number_of_bicluster
+    avg_f1 = avg_f1 / number_of_bicluster
+    avg_acc = avg_acc / number_of_bicluster
+    purity_multi = purity_numerator / amount_of_data_biclustering
+
+    print(f"Average Precision: {avg_precision}")
+    print(f"Average Recall: {avg_recall}")
+    print(f"Average F1_Score: {avg_f1}")
+    print(f"Average Accuracy: {avg_acc}")
+
+    print("Purity Multiclassification:", purity_multi)
+
+    return purity_multi, avg_precision, avg_recall, avg_f1, avg_acc
 
 
-def calculate_binary_classification(results):
+def calc_f1_binary_classification(results, true_labels):
+    # Code is really similar to calculation of f1 on multi classification.
     binary_results = []
+    avg_precision, avg_recall, avg_f1, avg_acc = 0, 0, 0, 0
 
     for result in results:
+        # Format results into binary results.
         binary_result = {
             "Normal": result.get("Normal", 0),
             "Attack": sum(value for key, value in result.items() if key != "Normal")
         }
         binary_results.append(binary_result)
 
-    precision_numerator_binary = 0
-    precision_denominator_binary = 0
+    purity_numerator_binary = 0
+    amount_of_data_biclustering = 0
 
     for j, binary_result in enumerate(binary_results):
+        count_labels = 0
+        # Count occurence of each label in the bicluster
+        for label in binary_result:
+            count_labels += binary_result[label]
+
         max_key_binary = max(binary_result, key=binary_result.get)
         max_value_binary = binary_result[max_key_binary]
         sum_values_binary = sum(binary_result.values())
 
-        precision_numerator_binary += binary_result[max_key_binary]
-        precision_denominator_binary += sum_values_binary
+        purity_numerator_binary += binary_result[max_key_binary]
+        amount_of_data_biclustering += sum_values_binary
 
-    accuracy_binary = precision_numerator_binary / precision_denominator_binary
+        true_negatives = 0
+        overall_amount = 0
+        for label in true_labels:
+            if label == max_key_binary:
+                overall_amount += true_labels[label]
+            else:
+                overall_amount += true_labels[label]
+                true_negatives += true_labels[label]
+        true_negatives = true_negatives - (count_labels - max_value_binary)
 
-    print("Accuracy binary:", accuracy_binary)
+        # Calculating accuracy denumerator is easier for binary classification
+        accuracy = (max_value_binary + true_negatives) / (true_labels["Normal"] + true_labels["Attack"])
+        recall = max_value_binary / true_labels[max_key_binary]
+        precision = max_value_binary / (binary_result["Normal"] + binary_result["Attack"])
+        f1_score = (2 * recall * precision) / (recall + precision)
 
-    return accuracy_binary
+        avg_acc += accuracy
+        avg_f1 += f1_score
+        avg_recall += recall
+        avg_precision += precision
+        number_of_bicluster = j + 1
+
+    avg_precision = avg_precision / number_of_bicluster
+    avg_recall = avg_recall / number_of_bicluster
+    avg_f1 = avg_f1 / number_of_bicluster
+    avg_acc = avg_acc / number_of_bicluster
+    purity_binary = purity_numerator_binary / amount_of_data_biclustering
+
+    print("Purity binary:", purity_binary)
+    print(f"Average Precision Binary: {avg_precision}")
+    print(f"Average Recall Binary: {avg_recall}")
+    print(f"Average F1_Score Binary: {avg_f1}")
+    print(f"Average Accuracy Binary: {avg_acc}")
+
+    return purity_binary, avg_precision, avg_recall, avg_f1, avg_acc
+
+
+def format_results_for_eval(biclustering_test, sample_size):
+    # Format the results so that we have list with a category for each row. The different bicluster mark the
+    # different category's. This is necessary to calcluate the metrics with sklearn.
+
+    biclusters_as_dict = _biclustering_to_dict(biclustering_test)
+
+    label_pred = [0 for i in range(sample_size)]
+
+    for count, bicluster in enumerate(biclusters_as_dict["biclusters"]):
+        rows = bicluster[0]
+        for row in rows:
+            label_pred[row] = count + 1
+
+    not_class_data = []
+    label_pred_without_none = []
+
+    for count, row in enumerate(label_pred):
+        if row == 0:
+            not_class_data.append(count)
+        else:
+            label_pred_without_none.append(row)
+
+    return label_pred_without_none, not_class_data
+
+
+def format_true_labels_for_eval(sample_labels, not_class_data, sample_labels_binary):
+    # Create list where each element represents the category the row had in the original data.
+    true_labels = [row['attack_cat'] for index, row in sample_labels.iterrows()]
+    true_labels_binary = [row['attack_cat'] for index, row in sample_labels_binary.iterrows()]
+
+    true_labels_without_none = []
+    for index, value in enumerate(true_labels):
+        if index not in not_class_data:
+            true_labels_without_none.append(value)
+
+    true_labels_without_none_binary = []
+    for index_b, value_b in enumerate(true_labels_binary):
+        if index_b not in not_class_data:
+            true_labels_without_none_binary.append(value_b)
+
+    return true_labels_without_none, true_labels_without_none_binary
+
+
+def create_reference_biclustering(sample_labels, sample_labels_binary):
+    # Create reference Biclustering for the evaluation methods designed for comparing biclusters. Reference Biclustering
+    # consists of 10 Bicluster with each just featuring data from a single category.
+
+    true_labels = [row['attack_cat'] for index, row in sample_labels.iterrows()]
+    biclusters_dict = {'__class__': 'Biclustering', '__module__': 'custom_biclustlib.biclustlib.models', 'biclusters': []}
+    label_values = ['Normal', 'Backdoor', 'Analysis', 'Fuzzers', 'Shellcode', 'Reconnaissance', 'Exploits', 'DoS',
+                    'Worms', 'Generic']
+
+    columns = [x for x in range(194)]
+    for label_value in label_values:
+        rows = []
+        for index, row in enumerate(true_labels):
+            if row == label_value:
+                rows.append(index)
+        biclusters_dict['biclusters'].append((rows, columns))
+
+    true_label_bicluster = _dict_to_biclustering(biclusters_dict)
+
+    true_labels_binary = [row['attack_cat'] for index, row in sample_labels_binary.iterrows()]
+    biclusters_dict_binary = {'__class__': 'Biclustering', '__module__': 'custom_biclustlib.biclustlib.models',
+                       'biclusters': []}
+    label_values_binary = ['Normal', 'Attack']
+
+    columns = [x for x in range(194)]
+    for label_value in label_values_binary:
+        rows = []
+        for index, row in enumerate(true_labels_binary):
+            if row == label_value:
+                rows.append(index)
+        biclusters_dict_binary['biclusters'].append((rows, columns))
+
+    true_label_bicluster_binary = _dict_to_biclustering(biclusters_dict_binary)
+
+    return true_label_bicluster, true_label_bicluster_binary
+
+
+def calulate_eval_without_reference_bicl(true_labels, pred_labels, true_labels_binary):
+    # Calculate popular metrics from sklearn.
+
+    rand_ind = metrics.rand_score(true_labels, pred_labels)
+    rand_ind_adj = metrics.adjusted_rand_score(true_labels, pred_labels)
+    v_measure = metrics.v_measure_score(true_labels, pred_labels)
+
+    rand_ind_bin = metrics.rand_score(true_labels_binary, pred_labels)
+    rand_ind_adj_bin = metrics.adjusted_rand_score(true_labels_binary, pred_labels)
+    v_measure_bin = metrics.v_measure_score(true_labels_binary, pred_labels)
+
+    print(f"Random_ind: {rand_ind}")
+    print(f"Random_ind_adj: {rand_ind_adj}")
+    print(f"V_Measure: {v_measure}")
+
+    print(f"Random_ind Binary: {rand_ind_bin}")
+    print(f"Random_ind_adj Binary: {rand_ind_adj_bin}")
+    print(f"V_Measure Binary: {v_measure_bin}")
+
+    return rand_ind, rand_ind_adj, v_measure, rand_ind_bin, rand_ind_adj_bin, v_measure_bin
+
+
+def calculate_eval_with_reference_bicl(pred_bicluster, true_bicluster, true_bicluster_binary):
+    # Calculate metrics to compare biclustering to "perfect" biclustering.
+
+    prelic_rel = prelic_relevance(pred_bicluster, true_bicluster)
+    prelic_rec = prelic_recovery(pred_bicluster, true_bicluster)
+    ce = clustering_error(pred_bicluster, true_bicluster, 40000, 194)
+    rnia = relative_non_intersecting_area(pred_bicluster, true_bicluster, 40000, 194)
+
+    prelic_rel_bin = prelic_relevance(pred_bicluster, true_bicluster_binary)
+    prelic_rec_bin = prelic_recovery(pred_bicluster, true_bicluster_binary)
+    ce_bin = clustering_error(pred_bicluster, true_bicluster_binary, 40000, 194)
+    rnia_bin = relative_non_intersecting_area(pred_bicluster, true_bicluster_binary, 40000, 194)
+
+    print(f"prelic_rel: {prelic_rel}")
+    print(f"prelic_rec: {prelic_rec}")
+    print(f"clustering error: {ce}")
+    print(f"rnia: {rnia}")
+    print(f"prelic_rel Binary: {prelic_rel_bin}")
+    print(f"prelic_rec Binary: {prelic_rec_bin}")
+    print(f"clustering error Binary: {ce_bin}")
+    print(f"rnia Binary: {rnia_bin}")
+
+    return prelic_rel, prelic_rec, ce, rnia, prelic_rel_bin, prelic_rec_bin, ce_bin, rnia_bin
+
+
+def update_results_dict_for_visualization(results_dict, metrics_list, msr_tresh, runtime_av, numb_class_data_sum,
+                                          sample_size):
+    results_dict["msr_thr"].append(msr_tresh)
+    results_dict["purity"].append(metrics_list[0])
+    results_dict["rand_index"].append(metrics_list[1])
+    results_dict["rand_index_adj"].append(metrics_list[2])
+    results_dict["V-measure"].append(metrics_list[3])
+    results_dict["F-measure"].append(metrics_list[4])
+    results_dict["Precision"].append(metrics_list[5])
+    results_dict["Recall"].append(metrics_list[6])
+    results_dict["Accuracy"].append(metrics_list[7])
+    results_dict["relevance_match_score"].append(metrics_list[8])
+    results_dict["recovery_match_score"].append(metrics_list[9])
+    results_dict["clustering_error"].append(metrics_list[10])
+    results_dict["relative_non_intersecting_area"].append(metrics_list[11])
+    results_dict["runtime"].append(runtime_av)
+    results_dict["coverage"].append(numb_class_data_sum / sample_size)
+
+
+def initialize_results_dict():
+    return {
+        "msr_thr": [],
+        "purity": [],
+        "rand_index": [],
+        "rand_index_adj": [],
+        "V-measure": [],
+        "F-measure": [],
+        "Precision": [],
+        "Recall": [],
+        "Accuracy": [],
+        "relevance_match_score": [],
+        "recovery_match_score": [],
+        "clustering_error": [],
+        "relative_non_intersecting_area": [],
+        "runtime": [],
+        "coverage": [],
+    }
 
 
 def main(sample_size=None):
-    mult_acc_av = 0
-    bin_acc_av = 0
-    number_of_runs = 10
-    msr_tresh = "default"
-    data_min_col = 500
-    multiple_node_deletion_tresh = 1.2
-    number_of_biclusters = 100
 
-    for i in range(number_of_runs):
-        data = preprocessing.preprocessing()
-        test_data = data[1][0]
-        y_cat_test = data[1][1]
-        all_cat_test = data[1][2]
-        test_data = logarithmic_transformation(test_data)
-        sample_data, sample_labels = get_sample(test_data, y_cat_test, sample_size=sample_size)
-        print(len(sample_data))
-        get_distribution_of_sample(sample_labels)
-        biclustering_test, msr_thr = run_cca(sample_data, msr_threshhold=msr_tresh, data_min_cols=data_min_col,
-                                             multiple_node_deletion_threshhold=multiple_node_deletion_tresh,
-                                             number_of_biclusters=number_of_biclusters)
+    """
+    Creates a sample dataset of UNSW-NB15 with given size. (Size is changeable with command line argument). CCA is then
+    used on this dataset in order to calculate a biclustering. The results are formatted in different ways in order to
+    calculate different evaluation metrics, like f1-score, rand index or the clustering error. The biclustering is
+    written into an text file and the results of the different metrics is written into a csv file.
+    """
 
-        results = format_cca_results(biclustering_test, all_cat_test, sample_labels)
-        mult_acc = calc_multi_classification(results)
-        bin_acc = calculate_binary_classification(results)
+    results_dict_for_visualization_mult = initialize_results_dict()
+    results_dict_for_visualization_bin = initialize_results_dict()
+
+    all_data = preprocessing.preprocessing()
+    data, y_cat, all_cat = all_data[1][0], all_data[1][1], all_data[1][2]
+    data = logarithmic_transformation(data)
+    number_of_biclusters, data_min_col, multiple_node_deletion_tresh, msr_tresh, number_of_runs = 200, 200, 1.15,\
+        "default", 1
+
+    mult_purity_av, bin_purity_av, mult_rand_ind_av, mult_rand_ind_adj_av, mult_v_measure_av, mult_prelic_rel_av, \
+        mult_prelic_rec_av, mult_ce_av, mult_rnia_av, mult_prec_av, mult_rec_av, mult_f1_av, mult_acc_av\
+        = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+    bin_rand_ind_av, bin_rand_ind_adj_av, bin_v_measure_av, bin_prelic_rel_av, bin_prelic_rec_av, bin_ce_av, \
+        bin_rnia_av, bin_prec_av, bin_rec_av, bin_f1_av, bin_acc_av = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+    runtime_av, numb_class_data_sum = 0, 0
+
+    for j in range(number_of_runs):
+        sample_data, sample_labels = get_sample(data, y_cat, sample_size=sample_size)
+        sample_labels_binary = get_sample_binary_labels(sample_labels)
+        labels_distribution, labels_distribution_binary = get_distribution_of_sample(sample_labels)
+
+        start = time.time()
+        biclustering, msr_thr = run_cca(sample_data, msr_threshhold=msr_tresh, data_min_cols=data_min_col,
+                                        multiple_node_deletion_threshhold=multiple_node_deletion_tresh,
+                                        number_of_biclusters=number_of_biclusters)
+        runtime = time.time() - start
+        runtime_av += runtime
+        print(f"The Process took {time.time() - start} seconds")
+
+        predicted_labels, not_class_data = format_results_for_eval(biclustering, sample_size)
+        true_labels, true_labels_binary = format_true_labels_for_eval(sample_labels, not_class_data,
+                                                                      sample_labels_binary)
+        mult_rand_ind, mult_rand_ind_adj, mult_v_measure, rand_ind_bin, rand_ind_adj_bin, v_measure_bin = \
+            calulate_eval_without_reference_bicl(true_labels, predicted_labels, true_labels_binary)
+
+        true_labels_bicluster_format, true_labels_binary_bicluster_format = create_reference_biclustering(
+            sample_labels, sample_labels_binary)
+        mult_prelic_rel, mult_prelic_rec, mult_ce, mult_rnia, prelic_rel_bin, prelic_rec_bin, ce_bin, rnia_bin = \
+            calculate_eval_with_reference_bicl(biclustering, true_labels_bicluster_format, true_labels_binary_bicluster_format)
+
+        results_f1_format, number_of_classified_data = format_results_for_f1(biclustering, all_cat, sample_labels)
+        mult_purity, mult_prec, mult_rec, mult_f1, mult_acc = calc_f1_multi_classification(results_f1_format,
+                                                                                           labels_distribution)
+        bin_purity, bin_prec, bin_rec, bin_f1, bin_acc = calc_f1_binary_classification(results_f1_format,
+                                                                                       labels_distribution_binary)
+
+        mult_purity_av += mult_purity
+        mult_rand_ind_av += mult_rand_ind
+        mult_rand_ind_adj_av += mult_rand_ind_adj
+        mult_v_measure_av += mult_v_measure
+        mult_prelic_rel_av += mult_prelic_rel
+        mult_prelic_rec_av += mult_prelic_rec
+        mult_ce_av += mult_ce
+        mult_rnia_av += mult_rnia
+        mult_prec_av += mult_prec
+        mult_rec_av += mult_rec
+        mult_f1_av += mult_f1
         mult_acc_av += mult_acc
+
+        bin_purity_av += bin_purity
+        bin_rand_ind_av += rand_ind_bin
+        bin_rand_ind_adj_av += rand_ind_adj_bin
+        bin_v_measure_av += v_measure_bin
+        bin_prelic_rel_av += prelic_rel_bin
+        bin_prelic_rec_av += prelic_rec_bin
+        bin_ce_av += ce_bin
+        bin_rnia_av += rnia_bin
+        bin_prec_av += bin_prec
+        bin_rec_av += bin_rec
+        bin_f1_av += bin_f1
         bin_acc_av += bin_acc
+        numb_class_data_sum += number_of_classified_data
 
-    mult_acc_av = mult_acc_av/10
-    bin_acc_av = bin_acc_av/10
-    print("Accuracy Multi Average:", mult_acc_av)
-    print("Accuracy binary Average:", bin_acc_av)
+    avg_divide = lambda x: x / number_of_runs
 
-    with open(f'CCA_{number_of_runs}_{sample_size}_{round(msr_thr)}_{multiple_node_deletion_tresh}_{data_min_col}_'
-              f'{number_of_biclusters}.out', 'w') as saveFile:
-        saveFile.write("Successful Run")
-        saveFile.write("\n")
-        saveFile.write("The Parameters used:")
-        saveFile.write("\n")
-        saveFile.write(f"Number of Runs: {number_of_runs}, Sample size: {sample_size}, MSR Treshhold: {msr_thr}, "
-                       f"Multiple Node Deletion Treshhold: {multiple_node_deletion_tresh},"
-                       f" Data_min_col: {data_min_col}, Number of Biclusters: {number_of_biclusters}")
-        saveFile.write("\n")
-        saveFile.write("Average Result over number of Runs:")
-        saveFile.write("\n")
-        saveFile.write(f"Multi result accuracy is: {mult_acc_av}")
-        saveFile.write("\n")
-        saveFile.write(f"Binary result accuracy is: {bin_acc_av}")
+    mult_purity_av, bin_purity_av = avg_divide(mult_purity_av), avg_divide(bin_purity_av)
+    mult_rand_ind_av, mult_rand_ind_adj_av, mult_v_measure_av, mult_prelic_rel_av, mult_prelic_rec_av, mult_ce_av, \
+        mult_rnia_av, mult_prec_av, mult_rec_av, mult_f1_av, mult_acc_av = map(avg_divide,
+                                                                              [mult_rand_ind_av, mult_rand_ind_adj_av,
+                                                                               mult_v_measure_av, mult_prelic_rel_av,
+                                                                               mult_prelic_rec_av, mult_ce_av,
+                                                                               mult_rnia_av, mult_prec_av, mult_rec_av,
+                                                                               mult_f1_av, mult_acc_av])
+
+    bin_rand_ind_av, bin_rand_ind_adj_av, bin_v_measure_av, bin_prelic_rel_av, bin_prelic_rec_av, bin_ce_av, \
+        bin_rnia_av, bin_prec_av, bin_rec_av, bin_f1_av, bin_acc_av = map(avg_divide,
+                                                                          [bin_rand_ind_av, bin_rand_ind_adj_av,
+                                                                           bin_v_measure_av, bin_prelic_rel_av,
+                                                                           bin_prelic_rec_av, bin_ce_av, bin_rnia_av,
+                                                                           bin_prec_av, bin_rec_av, bin_f1_av,
+                                                                           bin_acc_av])
+
+    runtime_av /= number_of_runs
+    numb_class_data_sum /= number_of_runs
+
+    print("Purity Multi Average:", mult_purity_av)
+    print("Purity binary Average:", bin_purity_av)
+
+    write_results_in_file(number_of_runs, sample_size, msr_thr, multiple_node_deletion_tresh, data_min_col,
+                          number_of_biclusters, biclustering)
+
+    update_results_dict_for_visualization(results_dict_for_visualization_mult, [
+        mult_purity_av, mult_rand_ind_av, mult_rand_ind_adj_av, mult_v_measure_av, mult_f1_av, mult_prec_av,
+        mult_rec_av, mult_acc_av, mult_prelic_rel_av, mult_prelic_rec_av, mult_ce_av, mult_rnia_av], msr_tresh,
+                                          runtime_av, numb_class_data_sum, sample_size)
+
+    update_results_dict_for_visualization(results_dict_for_visualization_bin, [
+        bin_purity_av, bin_rand_ind_av, bin_rand_ind_adj_av, bin_v_measure_av, bin_f1_av, bin_prec_av,
+        bin_rec_av, bin_acc_av, bin_prelic_rel_av, bin_prelic_rec_av, bin_ce_av, bin_rnia_av], msr_tresh, runtime_av,
+                                          numb_class_data_sum, sample_size)
+
+    df_mult = pd.DataFrame(results_dict_for_visualization_mult)
+    df_bin = pd.DataFrame(results_dict_for_visualization_bin)
+
+    df_mult.to_csv(f"Results_for_visualization_multi", index=False)
+    df_bin.to_csv(f"Results_for_visualization_binary", index=False)
+
+    print("Used Parameters:")
+    print(f"Number of Bicluster: {number_of_biclusters}, Minimal Data Columns: {data_min_col}, Multiple Node "
+          f"Deletion Treshold: {multiple_node_deletion_tresh}, Mean Squared Residue Treshold: {msr_tresh}")
 
 
 if __name__ == '__main__':
-    # Verwendung von argparse, um den sample_size-Parameter beim Ausführen des Codes anzugeben
     parser = argparse.ArgumentParser()
     parser.add_argument("sample_size", type=int, nargs='?', default=None, help="Sample size for CCA")
     args = parser.parse_args()
     main(sample_size=args.sample_size)
-
